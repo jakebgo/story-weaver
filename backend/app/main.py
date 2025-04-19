@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api import auth
+from .api import auth, transcription
 
 app = FastAPI(title="Story Weaver API")
 
@@ -15,6 +15,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(transcription.router, prefix="/api/transcription", tags=["transcription"])
 
 @app.get("/")
 async def root():

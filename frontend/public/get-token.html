@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Get Firebase Token</title>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyB1mFOogLRPsTkV7DHyeHEi2tUcy6QNczU",
+            authDomain: "story-weaver-61a13.firebaseapp.com",
+            projectId: "story-weaver-61a13",
+            storageBucket: "story-weaver-61a13.firebasestorage.app",
+            messagingSenderId: "337224696463",
+            appId: "1:337224696463:web:dfad39ede59b68147866fa",
+            measurementId: "G-6S62QT4Y7T"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        // Function to get token
+        async function getToken() {
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, 'test@example.com', 'testpassword123');
+                const token = await userCredential.user.getIdToken();
+                document.getElementById('token').textContent = token;
+                document.getElementById('copyButton').style.display = 'block';
+            } catch (error) {
+                document.getElementById('token').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Function to copy token
+        function copyToken() {
+            const token = document.getElementById('token').textContent;
+            navigator.clipboard.writeText(token);
+            document.getElementById('copyButton').textContent = 'Copied!';
+            setTimeout(() => {
+                document.getElementById('copyButton').textContent = 'Copy Token';
+            }, 2000);
+        }
+
+        // Make functions available globally
+        window.getToken = getToken;
+        window.copyToken = copyToken;
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        #token {
+            word-break: break-all;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        #copyButton {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Get Firebase Token</h1>
+    <button onclick="getToken()">Get Token</button>
+    <div id="token"></div>
+    <button id="copyButton" onclick="copyToken()">Copy Token</button>
+</body>
+</html> 

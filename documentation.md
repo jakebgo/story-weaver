@@ -37,13 +37,64 @@ Story Weaver is a web application designed to help writers' rooms by automatical
 - Google Cloud Run
 
 ## Development Workflow
-1. User authentication
-2. Audio recording
-3. Transcription processing
-4. Transcript correction
-5. AI analysis and outline generation
-6. Interactive navigation between outline and transcript
-7. Export functionality
+
+### Git Workflow
+1. Feature branches follow the pattern `feature/<task-name>`
+2. Branches are created from and merged back into `main`
+3. Each task completion includes:
+   - Code implementation
+   - Documentation updates
+   - Progress tracking
+   - Branch cleanup
+
+### Deployment Strategy
+1. Local Development:
+   - Hot-reloading enabled
+   - Environment variables managed via .env
+   - Secret Manager integration for credentials
+   - Firebase Admin SDK for authentication
+
+2. Production Deployment (Google Cloud Run):
+   - Container-based deployment
+   - Automated builds via Cloud Build
+   - Environment variables managed via Secret Manager
+   - Service account-based authentication
+   - Automatic scaling and HTTPS
+
+3. Deployment Process:
+   ```bash
+   # Local testing
+   docker build -t story-weaver-api .
+   docker run -p 8080:8080 story-weaver-api
+
+   # Production deployment
+   gcloud builds submit --config cloudbuild.yaml
+   ```
+
+4. Configuration Files:
+   - `Dockerfile`: Container configuration
+   - `.dockerignore`: Build optimization
+   - `cloudbuild.yaml`: Automated deployment
+   - Environment-specific configurations
+
+### Security Considerations
+1. Credential Management:
+   - No secrets in code or environment files
+   - Secret Manager for production credentials
+   - Local development keys in .gitignore
+   - Service account-based access control
+
+2. API Security:
+   - Firebase Authentication for user access
+   - CORS configuration for frontend access
+   - Environment-specific security settings
+   - Regular security audits
+
+3. Deployment Security:
+   - Container security best practices
+   - Minimal base image usage
+   - Regular dependency updates
+   - Secure environment variable handling
 
 ## Getting Started
 [To be added as development progresses]
@@ -69,6 +120,36 @@ The backend uses Firebase Admin SDK for authentication and database operations. 
    FIREBASE_CLIENT_EMAIL=your-client-email
    FIREBASE_CLIENT_ID=your-client-id
    FIREBASE_CLIENT_X509_CERT_URL=your-client-x509-cert-url
+   ```
+
+### Firebase Web API Key Configuration
+The Firebase Web API Key is used for client-side authentication and token verification:
+
+1. Key Location:
+   - Stored in `backend/.env` as `FIREBASE_WEB_API_KEY`
+   - Used by the frontend for Firebase Authentication
+   - Required for token exchange in development testing
+
+2. Usage:
+   - Frontend Firebase Authentication
+   - Token verification in development
+   - API authentication flow
+   - Test token generation
+
+3. Security Considerations:
+   - Key is public and safe to include in client-side code
+   - Protected by Firebase Security Rules
+   - Different from Firebase Admin SDK private key
+   - Should be included in environment variables for deployment
+
+4. Implementation:
+   ```python
+   # Example usage in get_test_token.py
+   response = requests.post(
+       "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken",
+       params={"key": os.getenv("FIREBASE_WEB_API_KEY")},
+       json={"token": custom_token, "returnSecureToken": True}
+   )
    ```
 
 ### Backend Server
@@ -164,3 +245,125 @@ The application uses Google Cloud Secret Manager to securely store sensitive cre
    - Secrets are never stored in code or environment variables
    - Access to secrets is controlled via IAM permissions
    - Local development uses a separate service account with limited permissions
+
+## Firebase Authentication Testing
+
+### Test User Setup
+A test user has been created for development purposes:
+- Email: test@example.com
+- Password: testpassword123
+- UID: zMRHGi6cwJRKwO3lnQLPS0YLBOs1
+
+### Token Generation
+Two methods are available for obtaining Firebase ID tokens:
+
+1. Using get-token.html:
+   - Located at `frontend/public/get-token.html`
+   - Provides a simple UI for token generation
+   - Includes copy-to-clipboard functionality
+   - Uses Firebase JS SDK directly
+
+2. Using get_test_token.py:
+   - Located at `backend/get_test_token.py`
+   - Creates/retrieves test user
+   - Outputs token generation instructions
+   - Useful for backend testing
+
+### Token Usage
+The Firebase ID token should be included in API requests as a Bearer token:
+```
+Authorization: Bearer <token>
+```
+
+### Frontend Development
+Current frontend setup includes:
+- React with Vite
+- TypeScript configuration
+- Tailwind CSS (configuration in progress)
+- Firebase JS SDK integration
+- Environment variables for Firebase config
+
+### Known Issues
+1. Tailwind CSS Configuration:
+   - Current error: PostCSS plugin configuration needs updating
+   - Required package: @tailwindcss/postcss
+   - Configuration file: postcss.config.js
+   - Status: In progress
+
+2. Development Environment:
+   - Frontend server needs proper configuration
+   - Backend server running with hot-reloading
+   - Firebase Authentication working correctly
+   - Token generation utilities in place
+
+### Transcription Service
+The transcription service handles audio file processing and transcription using the Gladia API:
+
+1. Service Configuration:
+   ```python
+   class TranscriptionService:
+       def __init__(self):
+           self.api_key = os.getenv("GLADIA_API_KEY")
+           self.api_url = "https://api.gladia.io/audio/text/audio-transcription/"
+           self.api_params = {
+               "language_behaviour": "automatic single language",
+               "model_size": "large",
+               "diarization": "true",
+               "timestamps": "true",
+               "max_duration": "300",
+               "language": "en"
+           }
+   ```
+
+2. Audio Processing Pipeline:
+   - File validation (size, format)
+   - Temporary file storage
+   - API request preparation
+   - Response processing
+   - Cleanup of temporary files
+
+3. Error Handling:
+   - AudioValidationError: Invalid file format or size
+   - RateLimitError: API rate limit exceeded
+   - TranscriptionError: General transcription failures
+   - Network errors and timeouts
+
+4. Response Format:
+   ```json
+   {
+       "success": true,
+       "transcript": "Full transcript text",
+       "language": "en",
+       "duration": 4.972,
+       "speakers": ["speaker_1", "speaker_2"],
+       "segments": [
+           {
+               "text": "Segment text",
+               "start": 0.124,
+               "end": 0.985,
+               "speaker": "speaker_1",
+               "confidence": 0.142,
+               "words": [
+                   {
+                       "word": "word",
+                       "time_begin": 0.124,
+                       "time_end": 0.244,
+                       "confidence": 0.11
+                   }
+               ]
+           }
+       ]
+   }
+   ```
+
+5. Logging and Monitoring:
+   - Detailed debug logging throughout pipeline
+   - Error tracking and reporting
+   - Performance monitoring
+   - API response validation
+
+6. Security Considerations:
+   - API key management
+   - Temporary file cleanup
+   - Input validation
+   - Error message sanitization
