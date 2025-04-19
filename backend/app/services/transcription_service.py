@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from fastapi import HTTPException
 import wave
 import io
+from .text_processor import TextProcessor
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -31,29 +33,37 @@ class RateLimitError(TranscriptionError):
 
 class TranscriptionService:
     def __init__(self):
+        """Initialize the transcription service with Gladia API configuration."""
+        # Load environment variables
+        load_dotenv()
+        
+        # Get API key from environment
         self.api_key = os.getenv("GLADIA_API_KEY")
         if not self.api_key:
-            logger.error("GLADIA_API_KEY environment variable is not set")
             raise ValueError("GLADIA_API_KEY environment variable is not set")
-        
+            
         logger.debug(f"Initialized TranscriptionService with API key: {self.api_key[:8]}...")
-        
-        self.api_url = "https://api.gladia.io/audio/text/audio-transcription/"
         
         # Configure API parameters
         self.api_params = {
             "language_behaviour": "automatic single language",
             "model_size": "large",
-            "diarization": "true",  # String values for form data
-            "timestamps": "true",   # String values for form data
-            "max_duration": "300",  # String values for form data
+            "diarization": "true",
+            "timestamps": "true",
+            "max_duration": "300",
             "language": "en"
         }
         logger.debug(f"API parameters configured: {self.api_params}")
         
+        # Set API endpoint
+        self.api_endpoint = "https://api.gladia.io/audio/text/audio-transcription/"
+        
         # Polling configuration
         self.max_polling_attempts = 30  # 5 minutes with 10-second intervals
         self.polling_interval = 10  # seconds
+        
+        # Initialize text processor
+        self.text_processor = TextProcessor()
         
     async def validate_audio(self, audio_data: bytes) -> None:
         """
@@ -183,7 +193,7 @@ class TranscriptionService:
             TranscriptionError: If polling fails or times out
         """
         headers = {"x-gladia-key": self.api_key}
-        status_url = f"{self.api_url}/status/{task_id}"
+        status_url = f"{self.api_endpoint}/status/{task_id}"
         
         async with aiohttp.ClientSession() as session:
             for attempt in range(self.max_polling_attempts):
@@ -216,12 +226,13 @@ class TranscriptionService:
                     
         raise TranscriptionError("Transcription polling timed out")
         
-    async def transcribe_audio(self, audio_path: str) -> Dict[str, Any]:
+    async def transcribe_audio(self, audio_path: str, user_id: str) -> Dict[str, Any]:
         """
-        Transcribe the audio file using Gladia API.
+        Transcribe the audio file using Gladia API and store in vector database.
         
         Args:
             audio_path: Path to the audio file
+            user_id: ID of the user who uploaded the audio
             
         Returns:
             Dictionary containing transcription results with speaker labels and timestamps
@@ -250,11 +261,11 @@ class TranscriptionService:
                     data.add_field(key, value)
                 
                 logger.debug("Sending request to Gladia API...")
-                logger.debug(f"API URL: {self.api_url}")
+                logger.debug(f"API URL: {self.api_endpoint}")
                 logger.debug(f"Headers: {headers}")
                 
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(self.api_url, headers=headers, data=data) as response:
+                    async with session.post(self.api_endpoint, headers=headers, data=data) as response:
                         logger.debug(f"Received response with status: {response.status}")
                         
                         if response.status != 200:
@@ -268,26 +279,116 @@ class TranscriptionService:
                         if task_id:
                             logger.info(f"Received task ID: {task_id}. Starting polling...")
                             result = await self._poll_transcription_status(task_id)
+                        
+                        # Process the transcript and store in vector database
+                        if "transcription" in result:
+                            transcript = result["transcription"]
+                            metadata = {
+                                "user_id": user_id,
+                                "source": "gladia",
+                                "task_id": task_id if task_id else None,
+                                "language": result.get("language", "en"),
+                                "duration": result.get("duration", 0)
+                            }
+                            
+                            # Store transcript segments in vector database
+                            segment_ids = self.text_processor.process_transcript(transcript, metadata)
+                            result["segment_ids"] = segment_ids
                             
                         return result
                         
         except Exception as e:
             logger.error(f"Error during transcription: {str(e)}", exc_info=True)
             raise TranscriptionError(f"Error during transcription: {str(e)}")
-            
-    async def cleanup_audio_file(self, audio_path: str) -> None:
+        finally:
+            # Clean up the temporary audio file
+            try:
+                if os.path.exists(audio_path):
+                    os.unlink(audio_path)
+                    logger.debug(f"Cleaned up temporary file: {audio_path}")
+            except Exception as e:
+                logger.warning(f"Error cleaning up temporary file: {str(e)}")
+
+    async def transcribe(self, audio_content: bytes) -> str:
         """
-        Clean up the temporary audio file.
+        Transcribe audio content using the Gladia API.
         
         Args:
-            audio_path: Path to the audio file to clean up
+            audio_content: Raw audio data in bytes
+            
+        Returns:
+            str: The transcribed text
+            
+        Raises:
+            Exception: If transcription fails
         """
         try:
-            if os.path.exists(audio_path):
-                os.unlink(audio_path)
-                logger.debug(f"Cleaned up temporary audio file: {audio_path}")
+            # Prepare the request
+            headers = {
+                "x-gladia-key": self.api_key,
+                "accept": "application/json"
+            }
+            
+            # Create form data with the audio content
+            data = aiohttp.FormData()
+            data.add_field(
+                'audio',
+                audio_content,
+                filename='audio.wav',
+                content_type='audio/wav'
+            )
+            
+            # Add API parameters to form data
+            for key, value in self.api_params.items():
+                data.add_field(key, value)
+            
+            # Send request to Gladia API
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.api_endpoint,
+                    data=data,
+                    headers=headers
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Transcription failed with status {response.status}: {error_text}")
+                        raise Exception(f"Transcription failed: {error_text}")
+                    
+                    result = await response.json()
+                    
+                    # Extract the transcription from the response
+                    transcription = result.get("prediction", [])
+                    if not transcription:
+                        logger.warning("No transcription found in response")
+                        logger.debug(f"Full response: {json.dumps(result, indent=2)}")
+                        raise Exception("No transcription found in response")
+                    
+                    # If transcription is a list, join the segments
+                    if isinstance(transcription, list):
+                        # Extract text from each segment
+                        segments = []
+                        for segment in transcription:
+                            if isinstance(segment, dict):
+                                text = segment.get("transcription", "")
+                                if text:
+                                    segments.append(text)
+                            elif isinstance(segment, str):
+                                segments.append(segment)
+                        
+                        # Join segments with spaces
+                        transcription = " ".join(segments)
+                    
+                    # If transcription is empty after processing
+                    if not transcription:
+                        logger.warning("No valid transcription segments found in response")
+                        logger.debug(f"Full response: {json.dumps(result, indent=2)}")
+                        raise Exception("No valid transcription segments found in response")
+                    
+                    return transcription
+                    
         except Exception as e:
-            logger.error(f"Error cleaning up audio file: {str(e)}", exc_info=True)
+            logger.error(f"Error during transcription: {str(e)}", exc_info=True)
+            raise
 
 # Create a singleton instance
 transcription_service = TranscriptionService() 
