@@ -18,4 +18,12 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Story Weaver API"} 
+    return {"message": "Welcome to Story Weaver API"}
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring."""
+    return {
+        "status": "healthy",
+        "version": "1.0.0"
+    } 
