@@ -126,4 +126,67 @@ class VectorStore:
             ]
         except Exception as e:
             logger.error(f"Error searching similar segments: {str(e)}")
+            raise
+            
+    def get_segment_by_id(self, segment_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a specific segment by its ID.
+        
+        Args:
+            segment_id: The ID of the segment to retrieve
+            
+        Returns:
+            Dict containing the segment data or None if not found
+        """
+        try:
+            # Use the scroll API to retrieve the segment by ID
+            results = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="id",
+                            match=models.MatchValue(value=segment_id)
+                        )
+                    ]
+                ),
+                limit=1
+            )
+            
+            # Check if we found the segment
+            if results[0]:
+                point = results[0][0]
+                return {
+                    "id": point.id,
+                    "text": point.payload["text"],
+                    **{k: v for k, v in point.payload.items() if k != "text"}
+                }
+            else:
+                logger.warning(f"Segment with ID {segment_id} not found")
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving segment by ID: {str(e)}")
+            raise
+            
+    def get_segments_by_ids(self, segment_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Retrieve multiple segments by their IDs.
+        
+        Args:
+            segment_ids: List of segment IDs to retrieve
+            
+        Returns:
+            List of dictionaries containing segment data
+        """
+        try:
+            segments = []
+            for segment_id in segment_ids:
+                segment = self.get_segment_by_id(segment_id)
+                if segment:
+                    segments.append(segment)
+            
+            logger.info(f"Retrieved {len(segments)} segments by ID")
+            return segments
+        except Exception as e:
+            logger.error(f"Error retrieving segments by IDs: {str(e)}")
             raise 
