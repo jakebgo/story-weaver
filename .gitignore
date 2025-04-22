@@ -1,6 +1,8 @@
 # Environment variables
 .env
 *.env
+.env.test
+.env.*.test
 
 # Firebase
 **/service-account.json
@@ -28,6 +30,7 @@ wheels/
 .installed.cfg
 *.egg
 venv/
+.venv/
 
 # Node
 node_modules/
@@ -57,4 +60,10 @@ yarn-error.log*
 # Firebase
 firebase-debug.log
 firebase-debug.*.log
-.firebase/ 
+.firebase/
+
+# Test files
+**/tests/conftest.py
+**/tests/mocks.py
+**/tests/__init__.py
+**/tests/test_*.py 
