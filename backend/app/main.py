@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api import auth, transcription, outline
+from .api.api import api_router
+from .api import auth
 
 app = FastAPI(title="Story Weaver API")
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite's default port
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],  # Allow both Vite ports
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -15,8 +16,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(transcription.router, prefix="/api/transcription", tags=["transcription"])
-app.include_router(outline.router, prefix="/api/outline", tags=["outline"])
+app.include_router(api_router, prefix="/api")
 
 @app.get("/")
 async def root():

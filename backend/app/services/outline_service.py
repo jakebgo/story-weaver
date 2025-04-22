@@ -5,8 +5,43 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from .vector_store import VectorStore
 from .embedding_service import EmbeddingService
+import json
+from jsonschema import validate, ValidationError
 
 logger = logging.getLogger(__name__)
+
+# Define JSON schemas for validation
+OUTLINE_SCHEMA = {
+    "type": "object",
+    "required": ["title", "sections"],
+    "properties": {
+        "title": {"type": "string"},
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["heading", "points"],
+                "properties": {
+                    "heading": {"type": "string"},
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["text", "segment_ids"],
+                            "properties": {
+                                "text": {"type": "string"},
+                                "segment_ids": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 class OutlineService:
     def __init__(self):
@@ -35,76 +70,185 @@ class OutlineService:
             logger.error(f"Failed to initialize OutlineService: {str(e)}")
             raise
 
-    async def generate_outline(self, segment_ids: List[str], prompt: Optional[str] = None) -> Dict[str, Any]:
+    def _validate_segment_ids(self, segment_ids: List[str]) -> List[str]:
         """
-        Generate an outline based on the provided segment IDs.
+        Validate that the provided segment IDs exist in the vector store.
         
         Args:
-            segment_ids: List of segment IDs to use as context
-            prompt: Optional prompt to guide the outline generation
+            segment_ids: List of segment IDs to validate
             
         Returns:
-            Dict containing the generated outline
+            List of valid segment IDs
         """
         try:
-            # Retrieve segments from vector store
-            segments = []
+            logger.info(f"Validating {len(segment_ids)} segment IDs")
+            logger.debug(f"Segment IDs to validate: {segment_ids}")
+            
+            valid_ids = []
+            invalid_ids = []
+            
             for segment_id in segment_ids:
                 segment = self.vector_store.get_segment_by_id(segment_id)
                 if segment:
-                    segments.append(segment["text"])
+                    valid_ids.append(segment_id)
+                    logger.debug(f"Segment {segment_id} is valid")
+                else:
+                    invalid_ids.append(segment_id)
+                    logger.warning(f"Segment {segment_id} not found in vector store")
             
+            logger.info(f"Validation complete: {len(valid_ids)} valid, {len(invalid_ids)} invalid")
+            if invalid_ids:
+                logger.warning(f"Invalid segment IDs: {invalid_ids}")
+            
+            return valid_ids
+        except Exception as e:
+            logger.error(f"Error validating segment IDs: {str(e)}")
+            raise
+
+    def _validate_outline(self, outline: Dict[str, Any]) -> bool:
+        """
+        Validate the outline structure against the schema.
+        
+        Args:
+            outline: The outline to validate
+            
+        Returns:
+            bool indicating if the outline is valid
+        """
+        try:
+            validate(instance=outline, schema=OUTLINE_SCHEMA)
+            return True
+        except ValidationError as e:
+            logger.error(f"Outline validation failed: {str(e)}")
+            return False
+
+    async def generate_outline(self, segment_ids: List[str], prompt: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate an outline from the provided segment IDs using RAG.
+        
+        Args:
+            segment_ids: List of segment IDs to include in the outline
+            prompt: Optional prompt to guide the outline generation
+            
+        Returns:
+            Generated outline as a dictionary
+        """
+        try:
+            logger.info(f"Generating outline for {len(segment_ids)} segments")
+            logger.debug(f"Segment IDs: {segment_ids}")
+            
+            # Validate segment IDs
+            valid_ids = self._validate_segment_ids(segment_ids)
+            if not valid_ids:
+                logger.error("No valid segment IDs found")
+                raise ValueError("No valid segment IDs provided")
+            
+            logger.info(f"Using {len(valid_ids)} valid segment IDs for outline generation")
+            
+            # Get segments from vector store
+            segments = self.vector_store.get_segments_by_ids(valid_ids)
             if not segments:
-                raise ValueError("No valid segments found")
+                logger.error("No segments found for valid IDs")
+                raise ValueError("No segments found for valid IDs")
             
-            # Prepare the context
-            context = "\n\n".join(segments)
+            logger.info(f"Retrieved {len(segments)} segments from vector store")
             
-            # Prepare the prompt
-            if not prompt:
-                prompt = """
+            # Prepare the context by combining segments with their IDs
+            context = "\n\n".join([
+                f"[Segment {seg['id']}]: {seg['text']}"
+                for seg in segments
+            ])
+            
+            # Prepare the outline generation prompt
+            outline_prompt = prompt or """
+            Create a structured story outline from the following transcript segments.
+            The outline should:
+            1. Have a clear title that captures the main theme
+            2. Be organized into logical sections
+            3. Include key points under each section
+            4. Reference the source segment IDs for each point
+            
+            Format the response as a JSON object with the following structure:
+            {
+                "title": "Main title of the outline",
+                "sections": [
+                    {
+                        "heading": "Section heading",
+                        "points": [
+                            {
+                                "text": "Point description",
+                                "segment_ids": ["id1", "id2"]
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            Ensure that:
+            1. Each point references at least one segment ID
+            2. The structure is hierarchical and logical
+            3. The content is clear and concise
+            4. The outline captures the main narrative flow
+            """
+            
+            # Generate outline using Gemini with the enhanced prompt
+            response = self.model.generate_content(
+                f"""
                 Based on the following transcript segments, generate a structured outline.
-                The outline should:
-                1. Have a clear title
-                2. Be organized into main sections
-                3. Include key points under each section
-                4. Reference the source transcript segments using their IDs
                 
-                Format the outline as a JSON object with the following structure:
-                {
-                    "title": "Main title",
+                Transcript segments:
+                {context}
+                
+                {outline_prompt}
+                
+                IMPORTANT: Your response must be a valid JSON object with the following structure:
+                {{
+                    "title": "Main title of the outline",
                     "sections": [
-                        {
+                        {{
                             "heading": "Section heading",
                             "points": [
-                                {
+                                {{
                                     "text": "Point description",
                                     "segment_ids": ["id1", "id2"]
-                                }
+                                }}
                             ]
-                        }
+                        }}
                     ]
-                }
+                }}
+                
+                Do not include any text before or after the JSON object.
                 """
-            
-            # Generate the outline
-            response = self.model.generate_content(
-                f"{prompt}\n\nTranscript segments:\n{context}"
             )
             
-            # Parse the response
+            if not response or not response.text:
+                logger.error("Failed to generate outline from Gemini service")
+                raise ValueError("Failed to generate outline")
+            
+            # Parse and validate the outline
             try:
-                import json
-                outline = json.loads(response.text)
-                logger.info("Successfully generated outline")
-                return outline
-            except json.JSONDecodeError:
-                logger.error("Failed to parse Gemini response as JSON")
-                return {
-                    "error": "Failed to parse outline",
-                    "raw_response": response.text
-                }
+                # Clean up the response text to ensure it's valid JSON
+                response_text = response.text.strip()
+                if response_text.startswith("```json"):
+                    response_text = response_text[7:]
+                if response_text.endswith("```"):
+                    response_text = response_text[:-3]
+                response_text = response_text.strip()
                 
+                outline = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Gemini response as JSON: {str(e)}")
+                logger.error(f"Raw response: {response.text}")
+                raise ValueError("Invalid outline format")
+            
+            # Validate outline structure
+            if not self._validate_outline(outline):
+                logger.error("Generated outline failed validation")
+                raise ValueError("Invalid outline structure")
+            
+            logger.info("Successfully generated and validated outline")
+            return outline
+            
         except Exception as e:
             logger.error(f"Error generating outline: {str(e)}")
             raise
@@ -206,7 +350,6 @@ class OutlineService:
             
             # Parse the responses
             try:
-                import json
                 analysis = {
                     "topics": json.loads(topics_response.text),
                     "key_moments": json.loads(moments_response.text),

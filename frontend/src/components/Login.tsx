@@ -1,26 +1,34 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import AudioRecorder from './AudioRecorder';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, currentUser } = useAuth();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    console.log('Attempting to sign in with:', { email });
 
     try {
       setError('');
       setLoading(true);
+      console.log('Calling login function...');
       await login(email, password);
+      console.log('Login successful');
     } catch (err) {
+      console.error('Login error:', err);
       setError('Failed to sign in');
-      console.error(err);
     } finally {
       setLoading(false);
     }
+  }
+
+  if (currentUser) {
+    return <AudioRecorder />;
   }
 
   return (

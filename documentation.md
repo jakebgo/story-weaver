@@ -96,6 +96,99 @@ Story Weaver is a web application designed to help writers' rooms by automatical
    - Regular dependency updates
    - Secure environment variable handling
 
+4. Firebase Project Management:
+   - Project migration process documented
+   - Service account credentials securely stored
+   - Environment variables updated for new projects
+   - Verification steps for project changes
+   - Backup of old project credentials
+   - Testing procedures for new configurations
+
+### Firebase Configuration
+1. Project Details:
+   - Current Project: story-weaver-ver2
+   - Service Account: firebase-adminsdk-fbsvc@story-weaver-ver2.iam.gserviceaccount.com
+   - Authentication: Email/Password enabled
+   - Storage: Configured for audio files
+   - Security Rules: Custom rules for data access
+
+2. Migration Process:
+   ```bash
+   # 1. Update service-account.json with new credentials
+   # 2. Run setup script to update environment variables
+   python setup_firebase.py
+   
+   # 3. Verify configuration
+   python test_firebase.py
+   ```
+
+3. Environment Variables:
+   ```
+   FIREBASE_PROJECT_ID=story-weaver-ver2
+   FIREBASE_PRIVATE_KEY_ID=<private_key_id>
+   FIREBASE_PRIVATE_KEY=<private_key>
+   FIREBASE_CLIENT_EMAIL=<client_email>
+   FIREBASE_CLIENT_ID=<client_id>
+   FIREBASE_CLIENT_X509_CERT_URL=<cert_url>
+   ```
+
+4. Testing:
+   - Authentication flow verification
+   - Service account access testing
+   - Environment variable validation
+   - API endpoint functionality
+   - Security rules enforcement
+
+### Firebase Service Implementation
+The Firebase service is implemented in `backend/app/core/firebase_admin.py` and provides core authentication functionality:
+
+1. Service Structure:
+   ```python
+   # Core functions
+   initialize_firebase() -> bool
+   verify_token(token: str) -> dict
+   ```
+
+2. Implementation Details:
+   - Automatic initialization on module import
+   - Environment variable-based configuration
+   - Comprehensive error handling and logging
+   - Secure token verification
+   - Service account credential management
+
+3. Security Features:
+   - Private key formatting handling
+   - Secure credential storage
+   - Token verification with error handling
+   - Logging with sensitive data protection
+   - Environment variable validation
+
+4. Usage Example:
+   ```python
+   from app.core.firebase_admin import verify_token
+   
+   # Verify a Firebase ID token
+   try:
+       decoded_token = verify_token(id_token)
+       user_id = decoded_token.get('uid')
+   except ValueError as e:
+       # Handle invalid token
+   ```
+
+5. Error Handling:
+   - Initialization failures
+   - Invalid token formats
+   - Expired tokens
+   - Malformed credentials
+   - Network issues
+
+6. Logging:
+   - Debug level for initialization
+   - Info level for successful operations
+   - Error level for failures
+   - Sensitive data redaction
+   - Stack traces for debugging
+
 ## Getting Started
 [To be added as development progresses]
 
@@ -367,3 +460,331 @@ The transcription service handles audio file processing and transcription using 
    - Temporary file cleanup
    - Input validation
    - Error message sanitization
+
+### Transcription Pipeline Testing
+1. Test Script Implementation:
+   ```python
+   # Location: backend/test_complete_pipeline.py
+   # Tests the complete transcription pipeline including:
+   - Firebase authentication
+   - Audio recording
+   - Transcription service
+   - Search functionality
+   ```
+
+2. SSL Certificate Setup (macOS):
+   ```bash
+   # Install Python SSL certificates
+   /Applications/Python\ 3.13/Install\ Certificates.command
+   ```
+
+3. Pipeline Components:
+   - Firebase Admin SDK initialization
+   - Custom token generation and verification
+   - Audio recording with sounddevice
+   - WAV file creation and handling
+   - Transcription API integration
+   - Search endpoint testing
+
+4. Error Handling:
+   - SSL certificate verification
+   - API connection issues
+   - Authentication failures
+   - File handling errors
+   - Response validation
+
+5. Testing Process:
+   ```bash
+   # Start the server
+   PYTHONPATH=/path/to/backend uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+   
+   # Run the test script
+   python test_complete_pipeline.py
+   ```
+
+6. Next Steps:
+   - Frontend UI integration testing
+   - Real-time audio streaming
+   - Progress indicators
+   - Error handling UI
+   - Response visualization
+
+## Audio Recording and Processing Pipeline
+
+### Implementation Details
+- Audio recording implemented using MediaRecorder API
+- WebM format used for initial recording
+- Conversion pipeline:
+  1. WebM blob → ArrayBuffer
+  2. Audio decoding with Web Audio API
+  3. WAV conversion for API compatibility
+- Successful transcription integration with backend API
+
+### Current Issues
+#### Outline Generation Error
+- Error occurs in the following sequence:
+  1. Audio recording and conversion successful
+  2. Transcription API call successful
+  3. Vector store segment creation successful
+  4. Outline generation fails with "No valid segments found"
+
+#### Debug Information
+- Vector store operations:
+  - Collection "story_segments" exists and accessible
+  - Segment creation successful (confirmed by logs)
+  - Segment retrieval failing
+- Error trace:
+  ```
+  WARNING: Segment with ID not found
+  ERROR: Error generating outline: No valid segments found
+  ```
+
+#### Technical Investigation Points
+1. Vector Store Segment Persistence
+   - Verify segment metadata storage
+   - Check segment ID generation and mapping
+   - Validate vector dimensions match collection configuration
+
+2. Segment Retrieval
+   - Confirm segment ID format consistency
+   - Verify user context in segment queries
+   - Check segment filtering logic
+
+3. Outline Generation
+   - Review segment validation criteria
+   - Verify minimum segment requirements
+   - Check error handling in outline service
+
+### Frontend Component Architecture
+
+#### AudioRecorder Component
+The AudioRecorder component handles audio recording, transcription, and outline generation:
+
+1. Props Interface:
+   ```typescript
+   interface AudioRecorderProps {
+     onRecordingComplete: (audioBlob: Blob) => void;
+   }
+   ```
+
+2. State Management:
+   - Recording state and timer
+   - Processing and error states
+   - Transcript and outline data
+   - Segment IDs for transcript management
+
+3. Key Functions:
+   - `startRecording()`: Initializes audio recording with WebM format
+   - `stopRecording()`: Stops recording and triggers processing
+   - `convertToWav()`: Converts WebM audio to WAV format
+   - `processRecording()`: Handles transcription and outline generation
+   - `handleTranscriptUpdate()`: Manages transcript edits
+   - `handleSaveChanges()`: Persists transcript changes
+
+4. Error Handling:
+   - Recording permission errors
+   - Audio processing errors
+   - Transcription service errors
+   - Save operation errors
+
+#### TranscriptDisplay Component
+The TranscriptDisplay component is implemented as a simple, read-only view of the transcript:
+```typescript
+interface TranscriptDisplayProps {
+  transcript: string;
+}
+
+// Displays raw transcript text in a pre-formatted block
+// No editing capabilities in MVP phase
+export default function TranscriptDisplay({ transcript }: TranscriptDisplayProps)
+```
+
+Key Features:
+- Raw transcript display with proper whitespace preservation
+- Pre-formatted text block with proper font styling
+- No editing capabilities (temporarily disabled for MVP)
+- Clean, focused presentation of transcript content
+
+#### OutlineDisplay Component
+The OutlineDisplay component presents a clean, hierarchical view of the generated outline:
+```typescript
+interface OutlinePoint {
+  text: string;
+  segment_ids: string[];  // Reserved for future linking feature
+}
+
+interface OutlineSection {
+  heading: string;
+  points: OutlinePoint[];
+}
+
+interface Outline {
+  title: string;
+  sections: OutlineSection[];
+}
+```
+
+Key Features:
+- Clean hierarchical display of outline sections and points
+- No interactive elements in MVP phase
+- Maintains semantic structure for future feature additions
+- Segment IDs preserved in data structure for future linking capability
+
+### UI Design Decisions
+1. MVP Focus:
+   - Simplified UI to focus on core functionality
+   - Removed editing capabilities to reduce complexity
+   - Disabled interactive features (View Source, section collapse) for initial release
+   
+2. Future Enhancements (Post-MVP):
+   - Transcript editing capabilities
+   - Interactive outline with source linking
+   - Collapsible sections for better navigation
+   - Enhanced visualization of transcript-outline relationships
+
+## Outline Generation System
+
+### Architecture
+The outline generation system consists of several interconnected components:
+
+1. **OutlineService**: Orchestrates the outline generation process
+   - Validates segment IDs against the vector store
+   - Formats context for the Gemini API
+   - Validates outline structure against JSON schema
+   - Implements comprehensive error handling and logging
+
+2. **VectorStore**: Manages segment storage and retrieval
+   - Stores text segments with their embeddings
+   - Provides efficient retrieval by segment ID
+   - Implements batch retrieval for multiple segments
+   - Includes proper error handling and logging
+
+3. **EmbeddingService**: Generates embeddings for text segments
+   - Uses sentence-transformers with all-MiniLM-L6-v2 model
+   - Handles both single and batch text embeddings
+   - Returns consistent embedding dimensions
+   - Includes proper error handling and logging
+
+4. **GeminiService**: Interfaces with the Gemini API
+   - Implements retry mechanism with exponential backoff
+   - Validates JSON responses against schema
+   - Includes comprehensive error handling
+   - Provides detailed logging of operations
+
+### Data Flow
+1. User provides segment IDs and optional prompt
+2. OutlineService validates segment IDs against VectorStore
+3. VectorStore retrieves text segments
+4. OutlineService formats context for Gemini API
+5. GeminiService generates outline with retries if needed
+6. OutlineService validates outline structure
+7. Validated outline is returned to user
+
+### Error Handling
+The system implements comprehensive error handling at multiple levels:
+
+1. **Segment ID Validation**:
+   - Checks existence of each segment ID
+   - Logs valid and invalid IDs
+   - Returns only valid IDs for processing
+
+2. **Outline Structure Validation**:
+   - Uses JSON schema validation
+   - Checks required fields and data types
+   - Logs validation errors with details
+
+3. **Gemini API Interaction**:
+   - Implements retry mechanism with exponential backoff
+   - Handles JSON parsing errors
+   - Logs raw responses for debugging
+   - Returns structured error information
+
+4. **Vector Store Operations**:
+   - Handles connection errors
+   - Logs retrieval failures
+   - Provides fallback mechanisms
+
+### Logging Strategy
+The system implements detailed logging throughout the pipeline:
+
+1. **Initialization Logs**:
+   - Service startup information
+   - Configuration details
+   - Connection status
+
+2. **Operation Logs**:
+   - Number of segments being processed
+   - Segment IDs being used
+   - Custom prompts if provided
+
+3. **Error Logs**:
+   - Detailed error messages with context
+   - Raw response data when parsing fails
+   - Validation failures with specific details
+
+4. **Success Logs**:
+   - Confirmation of successful operations
+   - Summary of processed data
+   - Validation results
+
+### JSON Schema
+The outline structure is validated against the following schema:
+
+```json
+{
+  "type": "object",
+  "required": ["title", "sections"],
+  "properties": {
+    "title": {"type": "string"},
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["heading", "points"],
+        "properties": {
+          "heading": {"type": "string"},
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["text", "segment_ids"],
+              "properties": {
+                "text": {"type": "string"},
+                "segment_ids": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### Outline Generation Workflow
+
+1. **Frontend Request Flow**:
+   - Audio recording is processed and converted to WAV format
+   - Audio is sent to transcription endpoint
+   - Segment IDs from transcription are used for outline generation
+   - Outline request uses query parameters: `segment_ids` and `prompt`
+
+2. **Backend Processing**:
+   - Validates segment IDs against vector store
+   - Retrieves text segments using Qdrant
+   - Generates outline using Gemini service
+   - Returns structured outline with title, sections, and points
+
+3. **Error Handling**:
+   - Frontend implements type checking for optional callbacks
+   - Backend validates segment IDs and outline structure
+   - Comprehensive logging at each step of the process
+
+4. **Integration Points**:
+   - Qdrant vector store for segment storage and retrieval
+   - Gemini service for outline generation
+   - Firebase authentication for user verification
+   - WebSocket for real-time updates (optional)

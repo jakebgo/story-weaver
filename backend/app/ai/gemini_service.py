@@ -3,8 +3,44 @@ import logging
 from typing import List, Dict, Any, Optional
 import google.generativeai as genai
 from dotenv import load_dotenv
+import json
+from jsonschema import validate, ValidationError
+import time
 
 logger = logging.getLogger(__name__)
+
+# Define JSON schemas for validation
+OUTLINE_SCHEMA = {
+    "type": "object",
+    "required": ["title", "sections"],
+    "properties": {
+        "title": {"type": "string"},
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["heading", "points"],
+                "properties": {
+                    "heading": {"type": "string"},
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["text", "segment_ids"],
+                            "properties": {
+                                "text": {"type": "string"},
+                                "segment_ids": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 class GeminiService:
     def __init__(self):
@@ -29,6 +65,23 @@ class GeminiService:
             logger.error(f"Failed to initialize Gemini API service: {str(e)}")
             raise
     
+    def _validate_outline(self, outline: Dict[str, Any]) -> bool:
+        """
+        Validate the outline structure against the schema.
+        
+        Args:
+            outline: The outline to validate
+            
+        Returns:
+            bool indicating if the outline is valid
+        """
+        try:
+            validate(instance=outline, schema=OUTLINE_SCHEMA)
+            return True
+        except ValidationError as e:
+            logger.error(f"Outline validation failed: {str(e)}")
+            return False
+    
     def generate_outline(self, context: List[str], prompt: str) -> Dict[str, Any]:
         """
         Generate an outline based on the provided context and prompt.
@@ -43,6 +96,7 @@ class GeminiService:
         try:
             # Format the context for the prompt
             formatted_context = "\n\n".join(context)
+            logger.info(f"Generating outline for {len(context)} segments")
             
             # Create the full prompt
             full_prompt = f"""
@@ -70,22 +124,45 @@ class GeminiService:
             }}
             """
             
-            # Generate the response
-            response = self.model.generate_content(full_prompt)
+            # Generate the response with retries
+            max_retries = 3
+            retry_delay = 1  # seconds
             
-            # Parse the response
-            try:
-                import json
-                outline = json.loads(response.text)
-                logger.info("Successfully generated and parsed outline")
-                return outline
-            except json.JSONDecodeError:
-                logger.error("Failed to parse Gemini response as JSON")
-                # Return a structured error response
-                return {
-                    "error": "Failed to parse outline",
-                    "raw_response": response.text
-                }
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Attempt {attempt + 1} of {max_retries}")
+                    
+                    # Generate the response
+                    response = self.model.generate_content(full_prompt)
+                    logger.debug(f"Raw response: {response.text}")
+                    
+                    # Parse the response
+                    outline = json.loads(response.text)
+                    
+                    # Validate the outline structure
+                    if self._validate_outline(outline):
+                        logger.info("Successfully generated and validated outline")
+                        return outline
+                    else:
+                        logger.warning(f"Invalid outline structure on attempt {attempt + 1}")
+                        if attempt == max_retries - 1:
+                            raise ValueError("Failed to generate valid outline structure")
+                        
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse Gemini response as JSON on attempt {attempt + 1}: {str(e)}")
+                    logger.debug(f"Raw response: {response.text}")
+                    if attempt == max_retries - 1:
+                        raise ValueError("Failed to parse outline")
+                        
+                except Exception as e:
+                    logger.warning(f"Error on attempt {attempt + 1}: {str(e)}")
+                    if attempt == max_retries - 1:
+                        raise
+                
+                # Wait before retrying
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
                 
         except Exception as e:
             logger.error(f"Error generating outline: {str(e)}")
@@ -104,6 +181,7 @@ class GeminiService:
         try:
             # Format the context for the prompt
             formatted_context = "\n\n".join(context)
+            logger.info(f"Analyzing topics for {len(context)} segments")
             
             # Create the prompt
             prompt = f"""
@@ -129,21 +207,41 @@ class GeminiService:
             }}
             """
             
-            # Generate the response
-            response = self.model.generate_content(prompt)
+            # Generate the response with retries
+            max_retries = 3
+            retry_delay = 1  # seconds
             
-            # Parse the response
-            try:
-                import json
-                topics = json.loads(response.text)
-                logger.info("Successfully analyzed topics")
-                return topics
-            except json.JSONDecodeError:
-                logger.error("Failed to parse Gemini response as JSON")
-                return {
-                    "error": "Failed to parse topics",
-                    "raw_response": response.text
-                }
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Attempt {attempt + 1} of {max_retries}")
+                    
+                    # Generate the response
+                    response = self.model.generate_content(prompt)
+                    logger.debug(f"Raw response: {response.text}")
+                    
+                    # Parse the response
+                    topics = json.loads(response.text)
+                    logger.info("Successfully analyzed topics")
+                    return topics
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse Gemini response as JSON on attempt {attempt + 1}: {str(e)}")
+                    logger.debug(f"Raw response: {response.text}")
+                    if attempt == max_retries - 1:
+                        return {
+                            "error": "Failed to parse topics",
+                            "raw_response": response.text
+                        }
+                        
+                except Exception as e:
+                    logger.warning(f"Error on attempt {attempt + 1}: {str(e)}")
+                    if attempt == max_retries - 1:
+                        raise
+                
+                # Wait before retrying
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
                 
         except Exception as e:
             logger.error(f"Error analyzing topics: {str(e)}")
@@ -162,6 +260,7 @@ class GeminiService:
         try:
             # Format the context for the prompt
             formatted_context = "\n\n".join(context)
+            logger.info(f"Identifying key moments for {len(context)} segments")
             
             # Create the prompt
             prompt = f"""
@@ -187,21 +286,41 @@ class GeminiService:
             }}
             """
             
-            # Generate the response
-            response = self.model.generate_content(prompt)
+            # Generate the response with retries
+            max_retries = 3
+            retry_delay = 1  # seconds
             
-            # Parse the response
-            try:
-                import json
-                moments = json.loads(response.text)
-                logger.info("Successfully identified key moments")
-                return moments
-            except json.JSONDecodeError:
-                logger.error("Failed to parse Gemini response as JSON")
-                return {
-                    "error": "Failed to parse key moments",
-                    "raw_response": response.text
-                }
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Attempt {attempt + 1} of {max_retries}")
+                    
+                    # Generate the response
+                    response = self.model.generate_content(prompt)
+                    logger.debug(f"Raw response: {response.text}")
+                    
+                    # Parse the response
+                    moments = json.loads(response.text)
+                    logger.info("Successfully identified key moments")
+                    return moments
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse Gemini response as JSON on attempt {attempt + 1}: {str(e)}")
+                    logger.debug(f"Raw response: {response.text}")
+                    if attempt == max_retries - 1:
+                        return {
+                            "error": "Failed to parse key moments",
+                            "raw_response": response.text
+                        }
+                        
+                except Exception as e:
+                    logger.warning(f"Error on attempt {attempt + 1}: {str(e)}")
+                    if attempt == max_retries - 1:
+                        raise
+                
+                # Wait before retrying
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
                 
         except Exception as e:
             logger.error(f"Error identifying key moments: {str(e)}")
@@ -220,6 +339,7 @@ class GeminiService:
         try:
             # Format the context for the prompt
             formatted_context = "\n\n".join(context)
+            logger.info(f"Extracting key terms from {len(context)} segments")
             
             # Create the prompt
             prompt = f"""
@@ -245,21 +365,41 @@ class GeminiService:
             }}
             """
             
-            # Generate the response
-            response = self.model.generate_content(prompt)
+            # Generate the response with retries
+            max_retries = 3
+            retry_delay = 1  # seconds
             
-            # Parse the response
-            try:
-                import json
-                terms = json.loads(response.text)
-                logger.info("Successfully extracted key terms")
-                return terms
-            except json.JSONDecodeError:
-                logger.error("Failed to parse Gemini response as JSON")
-                return {
-                    "error": "Failed to parse key terms",
-                    "raw_response": response.text
-                }
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Attempt {attempt + 1} of {max_retries}")
+                    
+                    # Generate the response
+                    response = self.model.generate_content(prompt)
+                    logger.debug(f"Raw response: {response.text}")
+                    
+                    # Parse the response
+                    terms = json.loads(response.text)
+                    logger.info("Successfully extracted key terms")
+                    return terms
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse Gemini response as JSON on attempt {attempt + 1}: {str(e)}")
+                    logger.debug(f"Raw response: {response.text}")
+                    if attempt == max_retries - 1:
+                        return {
+                            "error": "Failed to parse key terms",
+                            "raw_response": response.text
+                        }
+                        
+                except Exception as e:
+                    logger.warning(f"Error on attempt {attempt + 1}: {str(e)}")
+                    if attempt == max_retries - 1:
+                        raise
+                
+                # Wait before retrying
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
                 
         except Exception as e:
             logger.error(f"Error extracting key terms: {str(e)}")

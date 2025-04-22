@@ -18,6 +18,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+// Export the context itself for direct usage if needed
+export { AuthContext };
+
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
@@ -35,7 +38,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('Setting up auth state listener...');
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log('Auth state changed:', user ? 'User logged in' : 'No user');
       setCurrentUser(user);
       setLoading(false);
     });
@@ -44,15 +49,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   async function signup(email: string, password: string) {
+    console.log('Attempting to sign up...');
     await createUserWithEmailAndPassword(auth, email, password);
+    console.log('Sign up successful');
   }
 
   async function login(email: string, password: string) {
+    console.log('Attempting to log in...');
     await signInWithEmailAndPassword(auth, email, password);
+    console.log('Log in successful');
   }
 
   async function logout() {
+    console.log('Attempting to log out...');
     await signOut(auth);
+    console.log('Log out successful');
   }
 
   const value = {

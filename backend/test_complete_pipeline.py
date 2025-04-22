@@ -126,7 +126,7 @@ async def test_search_functionality(session: aiohttp.ClientSession, base_url: st
 
 async def test_complete_pipeline():
     """Test the complete transcription and search pipeline."""
-    base_url = "http://localhost:8000"
+    base_url = "http://localhost:8001"
     test_audio_path = "test_audio.wav"
     
     try:

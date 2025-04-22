@@ -139,23 +139,15 @@ class VectorStore:
             Dict containing the segment data or None if not found
         """
         try:
-            # Use the scroll API to retrieve the segment by ID
-            results = self.client.scroll(
+            # Use the retrieve API to get the point by ID
+            point = self.client.retrieve(
                 collection_name=self.collection_name,
-                scroll_filter=models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="id",
-                            match=models.MatchValue(value=segment_id)
-                        )
-                    ]
-                ),
-                limit=1
+                ids=[segment_id]
             )
             
             # Check if we found the segment
-            if results[0]:
-                point = results[0][0]
+            if point and len(point) > 0:
+                point = point[0]
                 return {
                     "id": point.id,
                     "text": point.payload["text"],
@@ -179,11 +171,21 @@ class VectorStore:
             List of dictionaries containing segment data
         """
         try:
+            # Use batch retrieve to get all segments at once
+            points = self.client.retrieve(
+                collection_name=self.collection_name,
+                ids=segment_ids
+            )
+            
+            # Convert points to segment dictionaries
             segments = []
-            for segment_id in segment_ids:
-                segment = self.get_segment_by_id(segment_id)
-                if segment:
-                    segments.append(segment)
+            for point in points:
+                if point:
+                    segments.append({
+                        "id": point.id,
+                        "text": point.payload["text"],
+                        **{k: v for k, v in point.payload.items() if k != "text"}
+                    })
             
             logger.info(f"Retrieved {len(segments)} segments by ID")
             return segments
