@@ -29,8 +29,8 @@ Story Weaver is a web application designed to help writers' rooms by automatical
 - Gemini API for LLM tasks
 
 ### External Services
-- Firebase Authentication (Spark Plan)
-- Transcription API (e.g., Gladia)
+- Firebase Authentication
+- Transcription API
 - Qdrant Cloud
 - Google Gemini API
 - Google Cloud Secret Manager
@@ -96,35 +96,16 @@ Story Weaver is a web application designed to help writers' rooms by automatical
    - Regular dependency updates
    - Secure environment variable handling
 
-4. Firebase Project Management:
-   - Project migration process documented
-   - Service account credentials securely stored
-   - Environment variables updated for new projects
-   - Verification steps for project changes
-   - Backup of old project credentials
-   - Testing procedures for new configurations
-
 ### Firebase Configuration
-1. Project Details:
-   - Current Project: story-weaver-ver2
-   - Service Account: firebase-adminsdk-fbsvc@story-weaver-ver2.iam.gserviceaccount.com
-   - Authentication: Email/Password enabled
-   - Storage: Configured for audio files
-   - Security Rules: Custom rules for data access
+1. Project Setup:
+   - Create a new Firebase project
+   - Enable Authentication (Email/Password)
+   - Configure Storage for audio files
+   - Set up Security Rules
 
-2. Migration Process:
-   ```bash
-   # 1. Update service-account.json with new credentials
-   # 2. Run setup script to update environment variables
-   python setup_firebase.py
-   
-   # 3. Verify configuration
-   python test_firebase.py
+2. Environment Variables:
    ```
-
-3. Environment Variables:
-   ```
-   FIREBASE_PROJECT_ID=story-weaver-ver2
+   FIREBASE_PROJECT_ID=<project_id>
    FIREBASE_PRIVATE_KEY_ID=<private_key_id>
    FIREBASE_PRIVATE_KEY=<private_key>
    FIREBASE_CLIENT_EMAIL=<client_email>
@@ -132,7 +113,7 @@ Story Weaver is a web application designed to help writers' rooms by automatical
    FIREBASE_CLIENT_X509_CERT_URL=<cert_url>
    ```
 
-4. Testing:
+3. Testing:
    - Authentication flow verification
    - Service account access testing
    - Environment variable validation
@@ -207,12 +188,12 @@ The backend uses Firebase Admin SDK for authentication and database operations. 
 
 2. Environment Variables:
    ```
-   FIREBASE_PROJECT_ID=your-project-id
-   FIREBASE_PRIVATE_KEY_ID=your-private-key-id
-   FIREBASE_PRIVATE_KEY="your-private-key"
-   FIREBASE_CLIENT_EMAIL=your-client-email
-   FIREBASE_CLIENT_ID=your-client-id
-   FIREBASE_CLIENT_X509_CERT_URL=your-client-x509-cert-url
+   FIREBASE_PROJECT_ID=<project_id>
+   FIREBASE_PRIVATE_KEY_ID=<private_key_id>
+   FIREBASE_PRIVATE_KEY=<private_key>
+   FIREBASE_CLIENT_EMAIL=<client_email>
+   FIREBASE_CLIENT_ID=<client_id>
+   FIREBASE_CLIENT_X509_CERT_URL=<cert_url>
    ```
 
 ### Firebase Web API Key Configuration
@@ -788,3 +769,189 @@ The outline structure is validated against the following schema:
    - Gemini service for outline generation
    - Firebase authentication for user verification
    - WebSocket for real-time updates (optional)
+
+### Development Branch Structure
+Current active development is taking place on the following branches:
+
+1. `main`
+   - Stable, production-ready code
+   - Contains all core infrastructure
+   - Recently updated with simplified UI components
+   - All authentication and vector store functionality verified
+
+2. `feature/basic-ai-outline` (current)
+   - Task 1.6: Basic AI Outline Generation PoC
+   - Building on verified vector store functionality
+   - Focus on Gemini API integration
+   - Target completion: Basic outline generation with RAG
+
+### Vector Store Verification
+Recent logs confirm proper functionality of the vector store system:
+
+1. Initialization:
+   ```log
+   INFO:app.services.vector_store:Successfully initialized Qdrant client
+   INFO:app.services.vector_store:Collection story_segments already exists
+   ```
+
+2. Embedding Generation:
+   ```log
+   DEBUG:app.services.embedding_service:Generating embeddings for 1 texts
+   DEBUG:app.services.embedding_service:Generated embeddings with shape: (1, 384)
+   ```
+
+3. Segment Operations:
+   ```log
+   INFO:app.services.vector_store:Successfully upserted 1 segments
+   DEBUG:app.services.outline_service:Segment <uuid> is valid
+   INFO:app.services.vector_store:Retrieved 1 segments by ID
+   ```
+
+This verification confirms the vector store is ready for integration with the Gemini-based outline generation system.
+
+### Mock Service Implementation
+The mock service implementation provides a testing environment for the outline generation system:
+
+1. MockVectorStore:
+   ```python
+   class MockVectorStore:
+       def __init__(self, test_segment_data, test_segment_ids):
+           self.test_segment_data = copy.deepcopy(test_segment_data)
+           self.test_segment_ids = test_segment_ids.copy()
+           self.segments = {}
+           
+       def get_segment_by_id(self, segment_id: str) -> Dict[str, Any]:
+           # Type checking and validation
+           if not isinstance(segment_id, str):
+               raise TypeError("Segment ID must be a string")
+           if not segment_id:
+               raise ValueError("Segment ID cannot be empty")
+           return copy.deepcopy(self.segments.get(segment_id))
+           
+       def get_segments_by_ids(self, segment_ids: List[str]) -> List[Dict[str, Any]]:
+           # Input validation and type checking
+           if not isinstance(segment_ids, list):
+               raise TypeError("Segment IDs must be provided as a list")
+           return [copy.deepcopy(self.segments[sid]) for sid in segment_ids if sid in self.segments]
+   ```
+
+2. MockOutlineService:
+   ```python
+   class MockOutlineService:
+       def _validate_segment_ids(self, segment_ids: List[str]) -> List[Dict[str, Any]]:
+           # Comprehensive validation
+           if not isinstance(segment_ids, list):
+               raise TypeError("Segment IDs must be provided as a list")
+           if not segment_ids:
+               raise ValueError("No segment IDs provided")
+           
+           # UUID format validation
+           for sid in segment_ids:
+               if not isinstance(sid, str):
+                   raise TypeError(f"Invalid segment ID type: {type(sid)}")
+               try:
+                   uuid.UUID(sid)
+               except ValueError:
+                   raise ValueError(f"Invalid segment ID format: {sid}")
+           
+           # Segment retrieval and validation
+           valid_segments = self._vector_store.get_segments_by_ids(segment_ids)
+           if not valid_segments:
+               raise ValueError(f"No valid segments found for IDs: {segment_ids}")
+           return valid_segments
+   ```
+
+3. Key Features:
+   - Deep copy protection for test data
+   - Comprehensive input validation
+   - UUID format checking for segment IDs
+   - Type checking for all parameters
+   - Source segment tracking in responses
+   - Centralized validation logic
+   - Detailed error messages
+
+4. Usage Example:
+   ```python
+   @pytest.fixture
+   def mock_outline_service(test_outline_data, test_analysis_data, test_segment_data, test_segment_ids):
+       return MockOutlineService(
+           test_outline_data,
+           test_analysis_data,
+           test_segment_data,
+           test_segment_ids
+       )
+   ```
+
+5. Error Handling:
+   - Type validation errors
+   - Empty input validation
+   - UUID format validation
+   - Segment existence validation
+   - Data integrity protection
+
+6. Data Protection:
+   - Deep copy of all test data
+   - Independent copies of segment IDs
+   - Protected test data from mutation
+   - Secure segment retrieval
+
+7. Response Structure:
+   ```python
+   {
+       "sections": [
+           {
+               "points": [
+                   {
+                       "segment_ids": ["uuid1", "uuid2"],
+                       "source_segments": ["segment1 text", "segment2 text"]
+                   }
+               ]
+           }
+       ]
+   }
+   ```
+
+## API Request Formats
+
+### Outline Generation
+
+The outline generation endpoint now uses a JSON request body instead of query parameters, following REST best practices:
+
+```json
+{
+  "segment_ids": ["id1", "id2", "id3"],
+  "prompt": "Optional prompt to guide outline generation"
+}
+```
+
+#### Request Details:
+- **Endpoint**: `POST /api/outline/generate`
+- **Content-Type**: `application/json`
+- **Authentication**: Bearer token required
+- **Request Body**:
+  - `segment_ids`: Array of segment IDs to include in the outline
+  - `prompt`: Optional string to guide the outline generation process
+
+#### Response Format:
+```json
+{
+  "title": "Main title of the outline",
+  "sections": [
+    {
+      "heading": "Section heading",
+      "points": [
+        {
+          "text": "Point description",
+          "segment_ids": ["id1", "id2"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+This change improves:
+1. Data structure suitability for complex parameters
+2. Request size limitations (no URL length constraints)
+3. Security (sensitive data not exposed in URL)
+4. Future extensibility of the API
