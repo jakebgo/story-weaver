@@ -228,11 +228,16 @@ export default function AudioRecorder({
       }
 
       console.log('Sending segment IDs to outline generation:', data.segment_ids);
-      const outlineResponse = await fetch(`http://localhost:8000/api/outline/generate?segment_ids=${data.segment_ids.join(',')}&prompt=${encodeURIComponent("Create a detailed outline of the story focusing on key events, characters, and themes.")}`, {
+      const outlineResponse = await fetch(`http://localhost:8000/api/outline/generate`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
-        }
+        },
+        body: JSON.stringify({
+          segment_ids: data.segment_ids,
+          prompt: "Create a detailed outline of the story focusing on key events, characters, and themes."
+        })
       });
       
       if (!outlineResponse.ok) {
